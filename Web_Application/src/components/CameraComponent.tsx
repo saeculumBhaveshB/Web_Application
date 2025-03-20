@@ -46,23 +46,31 @@ export const CameraComponent: React.FC<CameraComponentProps> = ({
     const video = videoRef.current;
     if (isEnabled && camera.stream && video) {
       video.srcObject = camera.stream;
-      video
-        .play()
-        .then(() => {
-          setIsVideoPlaying(true);
-          console.log("Video playback started");
-        })
-        .catch((error) => {
-          console.error("Error playing video:", error);
-          setError("Failed to play video feed");
-          setIsVideoPlaying(false);
-        });
+      video.onloadedmetadata = () => {
+        video
+          .play()
+          .then(() => {
+            setIsVideoPlaying(true);
+            console.log("Video playback started successfully");
+          })
+          .catch((error) => {
+            console.error("Error playing video:", error);
+            setError("Failed to play video feed");
+            setIsVideoPlaying(false);
+          });
+      };
+
+      // Add error handling for video element
+      video.onerror = (e) => {
+        console.error("Video element error:", e);
+        setError("Error with video playback");
+        setIsVideoPlaying(false);
+      };
     }
 
     return () => {
-      if (video && video.srcObject) {
-        const tracks = (video.srcObject as MediaStream).getTracks();
-        tracks.forEach((track) => track.stop());
+      if (video) {
+        video.srcObject = null;
         setIsVideoPlaying(false);
       }
     };
@@ -96,15 +104,32 @@ export const CameraComponent: React.FC<CameraComponentProps> = ({
   const handleStartCamera = async () => {
     try {
       setError(null);
+      setIsInitializing(true);
       const permissionGranted = await camera.requestPermission();
       if (permissionGranted === true) {
-        // Wait for the video to start playing
-        await new Promise((resolve) => setTimeout(resolve, 500));
-        await camera.startRecording();
+        // Wait for the video element to be ready
+        if (videoRef.current) {
+          videoRef.current.onloadedmetadata = () => {
+            setIsVideoPlaying(true);
+            console.log("Video element is ready and playing");
+          };
+        }
+        // Start recording after ensuring camera is active
+        if (camera.isActive) {
+          await camera.startRecording();
+        } else {
+          setError("Camera failed to activate. Please try again.");
+        }
+      } else {
+        setError(
+          "Failed to start camera. Please check your browser settings and permissions."
+        );
       }
     } catch (error) {
       console.error("Error starting camera:", error);
       setError("Failed to start camera. Please check your browser settings.");
+    } finally {
+      setIsInitializing(false);
     }
   };
 
@@ -206,17 +231,32 @@ export const CameraComponent: React.FC<CameraComponentProps> = ({
             borderRadius: "8px",
             backgroundColor: "#000",
             transform: "scaleX(-1)", // Mirror the video
+            display: camera.isActive ? "block" : "none", // Hide video when inactive
           }}
         />
+        {!camera.isActive && (
+          <Box
+            sx={{
+              width: "100%",
+              height: "360px",
+              backgroundColor: "#f5f5f5",
+              borderRadius: "8px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <Typography variant="body2" color="text.secondary">
+              Camera preview will appear here
+            </Typography>
+          </Box>
+        )}
         <Box sx={{ mt: 2, display: "flex", justifyContent: "center", gap: 2 }}>
           <Button
             variant="contained"
             color={camera.isRecording ? "error" : "primary"}
             onClick={camera.isRecording ? handleStopCamera : handleStartCamera}
-            disabled={
-              isInitializing ||
-              (!camera.isActive && camera.permissionStatus === "denied")
-            }
+            disabled={isInitializing}
           >
             {camera.isRecording ? "Stop Camera" : "Start Camera"}
           </Button>

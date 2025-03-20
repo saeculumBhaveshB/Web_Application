@@ -177,20 +177,99 @@ export const useCamera = (): UseCameraReturn => {
     isRequestingPermission.current = true;
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          facingMode: "user",
-        },
-        audio: false,
-      });
+      // First check if camera is available
+      const status = await verifyCameraAccess();
+      if (!status.isAvailable) {
+        console.error("Camera is not available:", status.error);
+        return false;
+      }
 
-      streamRef.current = stream;
-      setStream(stream);
+      // Stop any existing streams
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+      }
+
+      // Try to get the camera stream with basic constraints first
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: false,
+        });
+
+        // If basic constraints work, try to apply preferred constraints
+        try {
+          const preferredStream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              width: { ideal: 1280, min: 640 },
+              height: { ideal: 720, min: 480 },
+              facingMode: "user",
+              frameRate: { ideal: 30, min: 15 },
+            },
+            audio: false,
+          });
+
+          // If preferred constraints work, use them
+          stream.getTracks().forEach((track) => track.stop());
+          streamRef.current = preferredStream;
+          setStream(preferredStream);
+        } catch (constraintError) {
+          // If preferred constraints fail, fall back to the basic stream
+          console.log(
+            "Using basic camera constraints due to:",
+            constraintError
+          );
+          streamRef.current = stream;
+          setStream(stream);
+        }
+      } catch (error: unknown) {
+        const errorMessage =
+          error instanceof Error
+            ? error.message
+            : "Unknown error accessing camera";
+        throw new Error(`Failed to access camera: ${errorMessage}`);
+      }
+
+      // Verify we have a valid stream and video track
+      if (!streamRef.current) {
+        throw new Error("Failed to initialize camera stream");
+      }
+
+      const videoTrack = streamRef.current.getVideoTracks()[0];
+      if (!videoTrack) {
+        throw new Error("No video track available");
+      }
+
+      // Ensure track is active and enabled
+      videoTrack.enabled = true;
+
+      // Set up track event listeners
+      videoTrack.onended = () => {
+        setIsActive(false);
+        setStream(null);
+        streamRef.current = null;
+      };
+
+      videoTrack.onmute = () => {
+        setIsActive(false);
+        console.log("Camera track muted");
+      };
+
+      videoTrack.onunmute = () => {
+        setIsActive(true);
+        console.log("Camera track unmuted");
+      };
+
+      // Update state with new stream
       setIsActive(true);
       setPermissionStatus("granted");
-      setCameraStatus((prev) => ({ ...prev, hasPermission: true }));
+      setCameraStatus((prev) => ({
+        ...prev,
+        hasPermission: true,
+        error: undefined,
+      }));
+
+      console.log("Camera stream initialized successfully");
       return true;
     } catch (error) {
       console.error("Error requesting camera permission:", error);
@@ -198,8 +277,14 @@ export const useCamera = (): UseCameraReturn => {
       setCameraStatus((prev) => ({
         ...prev,
         hasPermission: false,
-        error: "Camera permission denied",
+        error:
+          error instanceof Error
+            ? error.message
+            : "Failed to initialize camera",
       }));
+      setIsActive(false);
+      setStream(null);
+      streamRef.current = null;
       return false;
     } finally {
       isRequestingPermission.current = false;
