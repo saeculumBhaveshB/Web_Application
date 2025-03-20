@@ -144,18 +144,80 @@ export const useCamera = (): UseCameraReturn => {
     };
   }, [stream]);
 
+  // Add effect to monitor stream state
+  useEffect(() => {
+    if (streamRef.current) {
+      const videoTrack = streamRef.current.getVideoTracks()[0];
+      if (videoTrack) {
+        const handleTrackEnded = () => {
+          setIsActive(false);
+          setStream(null);
+          streamRef.current = null;
+        };
+
+        videoTrack.onended = handleTrackEnded;
+        videoTrack.onmute = () => setIsActive(false);
+        videoTrack.onunmute = () => setIsActive(true);
+
+        return () => {
+          videoTrack.removeEventListener("ended", handleTrackEnded);
+        };
+      }
+    }
+  }, [streamRef.current]);
+
   const requestPermission = async (): Promise<void> => {
     if (isRequestingPermission.current) return;
     isRequestingPermission.current = true;
 
     try {
       // First check if camera is available
-      const isAvailable = await checkCameraAvailability();
-      if (!isAvailable) {
-        console.log("Camera is not available or permission not granted");
+      const status = await verifyCameraAccess();
+      if (!status.isAvailable) {
+        console.log("Camera is not available:", status.error);
         return;
       }
 
+      // If permission is already granted, just get the stream
+      if (status.hasPermission) {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            facingMode: "user",
+            frameRate: { ideal: 30 },
+          },
+          audio: false,
+        });
+
+        // Ensure the stream is active before setting it
+        const videoTrack = stream.getVideoTracks()[0];
+        if (videoTrack && videoTrack.readyState === "live") {
+          streamRef.current = stream;
+          setStream(stream);
+          setIsActive(true);
+          setPermissionStatus("granted");
+          setCameraStatus((prev) => ({ ...prev, hasPermission: true }));
+          console.log("Camera stream initialized successfully");
+        } else {
+          throw new Error("Failed to get active video track");
+        }
+        return;
+      }
+
+      // If permission is denied, update status
+      if (status.error?.includes("denied")) {
+        setPermissionStatus("denied");
+        setCameraStatus((prev) => ({
+          ...prev,
+          hasPermission: false,
+          error:
+            "Camera access was denied. Please enable camera access in your browser settings.",
+        }));
+        return;
+      }
+
+      // Request permission
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           width: { ideal: 1280 },
@@ -166,32 +228,57 @@ export const useCamera = (): UseCameraReturn => {
         audio: false,
       });
 
-      streamRef.current = stream;
-      setStream(stream);
-      setIsActive(true);
-      setPermissionStatus("granted");
-      setCameraStatus((prev) => ({ ...prev, hasPermission: true }));
+      // Ensure the stream is active before setting it
+      const videoTrack = stream.getVideoTracks()[0];
+      if (videoTrack && videoTrack.readyState === "live") {
+        streamRef.current = stream;
+        setStream(stream);
+        setIsActive(true);
+        setPermissionStatus("granted");
+        setCameraStatus((prev) => ({ ...prev, hasPermission: true }));
+        console.log("Camera stream initialized successfully");
+      } else {
+        throw new Error("Failed to get active video track");
+      }
     } catch (error) {
       console.error("Error requesting camera permission:", error);
       setPermissionStatus("denied");
       setCameraStatus((prev) => ({
         ...prev,
         hasPermission: false,
-        error: "Failed to access camera",
+        error: "Failed to access camera. Please check your browser settings.",
       }));
+      setIsActive(false);
+      throw error;
     } finally {
       isRequestingPermission.current = false;
     }
   };
 
   const startRecording = async (): Promise<void> => {
-    if (!stream) {
-      console.error("No camera stream available");
-      return;
-    }
-
     try {
-      const mediaRecorder = new MediaRecorder(stream, {
+      // First ensure we have a valid stream
+      if (!streamRef.current) {
+        console.log("No stream available, requesting camera access...");
+        await requestPermission();
+      }
+
+      if (!streamRef.current) {
+        throw new Error("Failed to get camera stream");
+      }
+
+      // Check if the stream is active
+      const videoTrack = streamRef.current.getVideoTracks()[0];
+      if (!videoTrack || videoTrack.readyState !== "live") {
+        console.log("Stream not active, reinitializing...");
+        await requestPermission();
+      }
+
+      if (!streamRef.current) {
+        throw new Error("Failed to get active camera stream");
+      }
+
+      const mediaRecorder = new MediaRecorder(streamRef.current, {
         mimeType: "video/webm;codecs=vp8",
         videoBitsPerSecond: 250000, // Low quality
       });
@@ -238,7 +325,7 @@ export const useCamera = (): UseCameraReturn => {
       setIsRecording(true);
     } catch (error) {
       console.error("Error starting recording:", error);
-      throw error; // Re-throw the error to maintain the Promise rejection
+      throw error;
     }
   };
 

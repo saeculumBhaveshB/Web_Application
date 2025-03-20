@@ -41,18 +41,17 @@ export const CameraComponent: React.FC<CameraComponentProps> = ({
     checkAccess();
   }, [camera.verifyCameraAccess]);
 
+  // Update video element when stream changes
   useEffect(() => {
     const video = videoRef.current;
     if (isEnabled && camera.stream && video) {
       video.srcObject = camera.stream;
-
-      // Ensure video plays
       video.play().catch((error) => {
         console.error("Error playing video:", error);
+        setError("Failed to play video feed");
       });
     }
 
-    // Cleanup function
     return () => {
       if (video && video.srcObject) {
         const tracks = (video.srcObject as MediaStream).getTracks();
@@ -61,8 +60,13 @@ export const CameraComponent: React.FC<CameraComponentProps> = ({
     };
   }, [isEnabled, camera.stream]);
 
-  const handleStartRecording = () => {
-    camera.startRecording();
+  const handleStartRecording = async () => {
+    try {
+      await camera.startRecording();
+    } catch (error) {
+      console.error("Error starting recording:", error);
+      setError("Failed to start recording. Please check camera access.");
+    }
   };
 
   const handleStopRecording = () => {
@@ -80,6 +84,16 @@ export const CameraComponent: React.FC<CameraComponentProps> = ({
       setLastRecordingPath(camera.lastRecordingPath);
     }
   }, [camera.lastRecordingPath]);
+
+  const handleStartCamera = async () => {
+    try {
+      setError(null);
+      await camera.requestPermission();
+    } catch (error) {
+      console.error("Error starting camera:", error);
+      setError("Failed to start camera. Please check your browser settings.");
+    }
+  };
 
   if (!isEnabled || !camera.isCameraAvailable) {
     return (
@@ -100,6 +114,26 @@ export const CameraComponent: React.FC<CameraComponentProps> = ({
               {camera.cameraStatus.error || "Camera is not available"}
             </Typography>
           </Box>
+          {camera.permissionStatus === "prompt" && (
+            <Button
+              variant="contained"
+              color="primary"
+              onClick={handleStartCamera}
+              sx={{ mt: 1 }}
+            >
+              Grant Camera Access
+            </Button>
+          )}
+          {camera.permissionStatus === "denied" && (
+            <Typography
+              variant="caption"
+              color="error"
+              sx={{ mt: 1, display: "block" }}
+            >
+              Please enable camera access in your browser settings and refresh
+              the page.
+            </Typography>
+          )}
         </Paper>
       </Box>
     );
@@ -120,7 +154,9 @@ export const CameraComponent: React.FC<CameraComponentProps> = ({
         <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
           <VideocamIcon color={camera.isActive ? "success" : "error"} />
           <Typography variant="body2">
-            {camera.isActive ? "Camera is active" : "Camera is inactive"}
+            {camera.isActive
+              ? "Camera is active"
+              : "Camera is inactive. Click 'Start Camera' to begin."}
           </Typography>
         </Box>
       </Paper>
@@ -146,13 +182,21 @@ export const CameraComponent: React.FC<CameraComponentProps> = ({
             variant="contained"
             color={camera.isRecording ? "error" : "primary"}
             onClick={
-              camera.isRecording ? handleStopRecording : handleStartRecording
+              camera.isRecording ? handleStopRecording : handleStartCamera
             }
+            disabled={camera.isRecording}
           >
             {camera.isRecording ? "Stop Camera" : "Start Camera"}
           </Button>
         </Box>
       </Box>
+
+      {/* Error Alert */}
+      {error && (
+        <Alert severity="error" sx={{ mt: 2 }}>
+          {error}
+        </Alert>
+      )}
 
       {/* Recording Status */}
       {camera.isRecording && (
