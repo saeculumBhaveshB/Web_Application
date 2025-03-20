@@ -7,7 +7,7 @@ interface UseCameraReturn {
   permissionStatus: PermissionStatus;
   startRecording: () => Promise<void>;
   stopRecording: () => void;
-  requestPermission: () => Promise<void>;
+  requestPermission: () => Promise<boolean>;
   isCameraAvailable: boolean;
   isActive: boolean;
   lastRecordingPath: string | null;
@@ -21,6 +21,7 @@ interface UseCameraReturn {
     hasPermission: boolean;
     error?: string;
   }>;
+  stopCamera: () => void;
 }
 
 export const useCamera = (): UseCameraReturn => {
@@ -113,16 +114,21 @@ export const useCamera = (): UseCameraReturn => {
     }
   };
 
-  // Update checkCameraAvailability to use verifyCameraAccess
   const checkCameraAvailability = async () => {
-    const status = await verifyCameraAccess();
-    setCameraStatus({
-      hasCamera: status.isAvailable,
-      hasPermission: status.hasPermission,
-      error: status.error,
-    });
-    setIsCameraAvailable(status.isAvailable && status.hasPermission);
-    return status.isAvailable && status.hasPermission;
+    try {
+      const status = await verifyCameraAccess();
+      setCameraStatus({
+        hasCamera: status.isAvailable,
+        hasPermission: status.hasPermission,
+        error: status.error,
+      });
+      setIsCameraAvailable(status.isAvailable);
+      return status.isAvailable;
+    } catch (error) {
+      console.error("Error checking camera availability:", error);
+      setIsCameraAvailable(false);
+      return false;
+    }
   };
 
   // Check camera availability on mount
@@ -166,121 +172,98 @@ export const useCamera = (): UseCameraReturn => {
     }
   }, [streamRef.current]);
 
-  const requestPermission = async (): Promise<void> => {
-    if (isRequestingPermission.current) return;
+  const requestPermission = async (): Promise<boolean> => {
+    if (isRequestingPermission.current) return false;
     isRequestingPermission.current = true;
 
     try {
-      // First check if camera is available
-      const status = await verifyCameraAccess();
-      if (!status.isAvailable) {
-        console.log("Camera is not available:", status.error);
-        return;
-      }
-
-      // If permission is already granted, just get the stream
-      if (status.hasPermission) {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-            facingMode: "user",
-            frameRate: { ideal: 30 },
-          },
-          audio: false,
-        });
-
-        // Ensure the stream is active before setting it
-        const videoTrack = stream.getVideoTracks()[0];
-        if (videoTrack && videoTrack.readyState === "live") {
-          streamRef.current = stream;
-          setStream(stream);
-          setIsActive(true);
-          setPermissionStatus("granted");
-          setCameraStatus((prev) => ({ ...prev, hasPermission: true }));
-          console.log("Camera stream initialized successfully");
-        } else {
-          throw new Error("Failed to get active video track");
-        }
-        return;
-      }
-
-      // If permission is denied, update status
-      if (status.error?.includes("denied")) {
-        setPermissionStatus("denied");
-        setCameraStatus((prev) => ({
-          ...prev,
-          hasPermission: false,
-          error:
-            "Camera access was denied. Please enable camera access in your browser settings.",
-        }));
-        return;
-      }
-
-      // Request permission
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           width: { ideal: 1280 },
           height: { ideal: 720 },
           facingMode: "user",
-          frameRate: { ideal: 30 },
         },
         audio: false,
       });
 
-      // Ensure the stream is active before setting it
-      const videoTrack = stream.getVideoTracks()[0];
-      if (videoTrack && videoTrack.readyState === "live") {
-        streamRef.current = stream;
-        setStream(stream);
-        setIsActive(true);
-        setPermissionStatus("granted");
-        setCameraStatus((prev) => ({ ...prev, hasPermission: true }));
-        console.log("Camera stream initialized successfully");
-      } else {
-        throw new Error("Failed to get active video track");
-      }
+      streamRef.current = stream;
+      setStream(stream);
+      setIsActive(true);
+      setPermissionStatus("granted");
+      setCameraStatus((prev) => ({ ...prev, hasPermission: true }));
+      return true;
     } catch (error) {
       console.error("Error requesting camera permission:", error);
       setPermissionStatus("denied");
       setCameraStatus((prev) => ({
         ...prev,
         hasPermission: false,
-        error: "Failed to access camera. Please check your browser settings.",
+        error: "Camera permission denied",
       }));
-      setIsActive(false);
-      throw error;
+      return false;
     } finally {
       isRequestingPermission.current = false;
     }
   };
 
-  const startRecording = async (): Promise<void> => {
+  const saveRecordingToFile = async (blob: Blob) => {
     try {
-      // First ensure we have a valid stream
+      // Create a filename with timestamp
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+      const filename = `camera-recording-${timestamp}.webm`;
+
+      // Request permission to save the file
+      const handle = await window.showSaveFilePicker({
+        suggestedName: filename,
+        types: [
+          {
+            description: "WebM Video",
+            accept: {
+              "video/webm": [".webm"],
+            },
+          },
+        ],
+      });
+
+      // Create a writable stream
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+
+      // Get the file path
+      const filePath = handle.name;
+      setLastRecordingPath(filePath);
+      console.log("Camera recording saved to:", filePath);
+      return filePath;
+    } catch (error) {
+      console.error("Error saving camera recording to file:", error);
+      // Fallback to localStorage if file system access fails
+      const reader = new FileReader();
+      reader.readAsDataURL(blob);
+      reader.onloadend = () => {
+        const base64data = reader.result as string;
+        localStorage.setItem("cameraRecording", base64data);
+        setLastRecordingPath("Browser Local Storage");
+      };
+      return "Browser Local Storage";
+    }
+  };
+
+  const startRecording = async () => {
+    try {
       if (!streamRef.current) {
-        console.log("No stream available, requesting camera access...");
-        await requestPermission();
+        throw new Error("No camera stream available");
       }
 
-      if (!streamRef.current) {
-        throw new Error("Failed to get camera stream");
-      }
-
-      // Check if the stream is active
+      // Ensure the stream is active
       const videoTrack = streamRef.current.getVideoTracks()[0];
       if (!videoTrack || videoTrack.readyState !== "live") {
-        console.log("Stream not active, reinitializing...");
-        await requestPermission();
-      }
-
-      if (!streamRef.current) {
-        throw new Error("Failed to get active camera stream");
+        throw new Error("Camera stream is not active");
       }
 
       const mediaRecorder = new MediaRecorder(streamRef.current, {
         mimeType: "video/webm;codecs=vp8",
-        videoBitsPerSecond: 250000, // Low quality
+        videoBitsPerSecond: 2500000, // 2.5 Mbps
       });
 
       mediaRecorderRef.current = mediaRecorder;
@@ -297,34 +280,16 @@ export const useCamera = (): UseCameraReturn => {
         }
       };
 
-      mediaRecorder.onstop = () => {
+      mediaRecorder.onstop = async () => {
         const blob = new Blob(chunksRef.current, { type: "video/webm" });
-        const url = URL.createObjectURL(blob);
-
-        // Save to localStorage (as base64)
-        const reader = new FileReader();
-        reader.readAsDataURL(blob);
-        reader.onloadend = () => {
-          const base64data = reader.result as string;
-          localStorage.setItem("cameraRecording", base64data);
-          console.log(
-            "Recording saved to localStorage. Size:",
-            base64data.length,
-            "bytes"
-          );
-          console.log(
-            "Recording can be found in browser's Local Storage under key: cameraRecording"
-          );
-        };
-
-        URL.revokeObjectURL(url);
+        await saveRecordingToFile(blob);
       };
 
       mediaRecorder.start(1000); // Collect data every second
-      console.log("Started recording camera feed");
       setIsRecording(true);
+      console.log("Camera recording started");
     } catch (error) {
-      console.error("Error starting recording:", error);
+      console.error("Error starting camera recording:", error);
       throw error;
     }
   };
@@ -335,22 +300,33 @@ export const useCamera = (): UseCameraReturn => {
       mediaRecorderRef.current.state !== "inactive"
     ) {
       mediaRecorderRef.current.stop();
-      console.log("Stopped recording camera feed");
       setIsRecording(false);
+      console.log("Camera recording stopped");
+    }
+  };
+
+  const stopCamera = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+      setIsActive(false);
+      setIsRecording(false);
+      console.log("Camera stopped");
     }
   };
 
   return {
-    stream,
+    isActive,
     isRecording,
+    stream: streamRef.current,
+    isCameraAvailable,
+    cameraStatus,
     permissionStatus,
+    lastRecordingPath,
+    requestPermission,
     startRecording,
     stopRecording,
-    requestPermission,
-    isCameraAvailable,
-    isActive,
-    lastRecordingPath,
-    cameraStatus,
+    stopCamera,
     verifyCameraAccess,
   };
 };
