@@ -10,6 +10,7 @@ interface UseScreenCaptureReturn {
   requestPermission: () => Promise<void>;
   isScreenCaptureAvailable: boolean;
   isActive: boolean;
+  lastRecordingPath: string | null;
 }
 
 export const useScreenCapture = (): UseScreenCaptureReturn => {
@@ -20,10 +21,14 @@ export const useScreenCapture = (): UseScreenCaptureReturn => {
   const [isScreenCaptureAvailable, setIsScreenCaptureAvailable] =
     useState<boolean>(false);
   const [isActive, setIsActive] = useState<boolean>(false);
+  const [lastRecordingPath, setLastRecordingPath] = useState<string | null>(
+    null
+  );
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const isRequestingPermission = useRef<boolean>(false);
   const streamRef = useRef<MediaStream | null>(null);
+  const fileHandleRef = useRef<FileSystemFileHandle | null>(null);
 
   // Check screen capture availability on mount
   useEffect(() => {
@@ -131,6 +136,50 @@ export const useScreenCapture = (): UseScreenCaptureReturn => {
     setIsRecording(false);
   };
 
+  const saveRecordingToFile = async (blob: Blob) => {
+    try {
+      // Create a timestamp for the filename
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+      const filename = `screen-recording-${timestamp}.webm`;
+
+      // Request permission to save file
+      const handle = await window.showSaveFilePicker({
+        suggestedName: filename,
+        types: [
+          {
+            description: "WebM Video",
+            accept: {
+              "video/webm": [".webm"],
+            },
+          },
+        ],
+      });
+
+      // Save the file
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+
+      // Store the file handle for future use
+      fileHandleRef.current = handle;
+
+      // Get the file path
+      const file = await handle.getFile();
+      setLastRecordingPath(file.name);
+      console.log("Screen recording saved to:", file.name);
+    } catch (error) {
+      console.error("Error saving recording to file:", error);
+      // Fallback to localStorage if file system access fails
+      const reader = new FileReader();
+      reader.readAsDataURL(blob);
+      reader.onloadend = () => {
+        const base64data = reader.result as string;
+        localStorage.setItem("screenRecording", base64data);
+        console.log("Screen recording saved to localStorage as fallback");
+      };
+    }
+  };
+
   const startRecording = async (): Promise<void> => {
     if (!streamRef.current) {
       console.log("No stream available, requesting permission first");
@@ -163,27 +212,9 @@ export const useScreenCapture = (): UseScreenCaptureReturn => {
         }
       };
 
-      mediaRecorder.onstop = () => {
+      mediaRecorder.onstop = async () => {
         const blob = new Blob(chunksRef.current, { type: "video/webm" });
-        const url = URL.createObjectURL(blob);
-
-        // Save to localStorage (as base64)
-        const reader = new FileReader();
-        reader.readAsDataURL(blob);
-        reader.onloadend = () => {
-          const base64data = reader.result as string;
-          localStorage.setItem("screenRecording", base64data);
-          console.log(
-            "Screen recording saved to localStorage. Size:",
-            base64data.length,
-            "bytes"
-          );
-          console.log(
-            "Screen recording can be found in browser's Local Storage under key: screenRecording"
-          );
-        };
-
-        URL.revokeObjectURL(url);
+        await saveRecordingToFile(blob);
       };
 
       mediaRecorder.start(1000); // Collect data every second
@@ -216,5 +247,6 @@ export const useScreenCapture = (): UseScreenCaptureReturn => {
     requestPermission,
     isScreenCaptureAvailable,
     isActive,
+    lastRecordingPath,
   };
 };

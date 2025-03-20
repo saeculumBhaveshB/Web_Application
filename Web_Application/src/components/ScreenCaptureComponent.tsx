@@ -16,10 +16,12 @@ import StorageIcon from "@mui/icons-material/Storage";
 
 interface ScreenCaptureComponentProps {
   isEnabled: boolean;
+  onRecordingComplete: (path: string) => void;
 }
 
 export const ScreenCaptureComponent: React.FC<ScreenCaptureComponentProps> = ({
   isEnabled,
+  onRecordingComplete,
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const screenCapture = useScreenCapture();
@@ -71,6 +73,13 @@ export const ScreenCaptureComponent: React.FC<ScreenCaptureComponentProps> = ({
       }
     };
   }, [isEnabled, screenCapture.stream]);
+
+  // Update lastRecordingPath when screenCapture.lastRecordingPath changes
+  useEffect(() => {
+    if (screenCapture.lastRecordingPath) {
+      setLastRecordingPath(screenCapture.lastRecordingPath);
+    }
+  }, [screenCapture.lastRecordingPath]);
 
   const handleStartRecording = async () => {
     if (isRequestingPermission) {
@@ -229,10 +238,22 @@ export const ScreenCaptureComponent: React.FC<ScreenCaptureComponentProps> = ({
       {/* Last Recording Location */}
       {lastRecordingPath && (
         <Paper
-          sx={{ p: 2, mt: 2, display: "flex", alignItems: "center", gap: 1 }}
+          elevation={0}
+          sx={{
+            p: 2,
+            mt: 2,
+            bgcolor: "background.paper",
+            border: "1px solid",
+            borderColor: "divider",
+            borderRadius: 1,
+          }}
         >
-          <StorageIcon color="primary" />
-          <Typography>Last recording saved to: {lastRecordingPath}</Typography>
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            <StorageIcon color="primary" />
+            <Typography variant="body2">
+              Last recording saved as: {lastRecordingPath}
+            </Typography>
+          </Box>
         </Paper>
       )}
 

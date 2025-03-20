@@ -53,7 +53,12 @@ function App() {
             {isEnabled && (
               <Box sx={{ mt: 4 }}>
                 <CameraComponent isEnabled={isEnabled} />
-                <ScreenCaptureComponent isEnabled={isEnabled} />
+                <ScreenCaptureComponent
+                  isEnabled={isEnabled}
+                  onRecordingComplete={(path) => {
+                    console.log("Screen recording completed:", path);
+                  }}
+                />
               </Box>
             )}
           </Box>
