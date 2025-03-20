@@ -12,11 +12,34 @@ interface CameraComponentProps {
 export const CameraComponent: React.FC<CameraComponentProps> = ({
   isEnabled,
 }) => {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const camera = useCamera();
+  const [isInitializing, setIsInitializing] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [isVideoPlaying, setIsVideoPlaying] = useState(false);
   const [lastRecordingPath, setLastRecordingPath] = useState<string | null>(
     null
   );
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const camera = useCamera();
+
+  // Check camera access on mount
+  useEffect(() => {
+    const checkAccess = async () => {
+      try {
+        const status = await camera.verifyCameraAccess();
+        if (!status.isAvailable) {
+          setError(status.error || "Camera is not available");
+        } else if (!status.hasPermission) {
+          setError(status.error || "Camera permission not granted");
+        }
+      } catch (err) {
+        setError("Error checking camera access");
+      } finally {
+        setIsInitializing(false);
+      }
+    };
+
+    checkAccess();
+  }, [camera.verifyCameraAccess]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -51,32 +74,55 @@ export const CameraComponent: React.FC<CameraComponentProps> = ({
     }
   };
 
-  // If camera is not available or component is not enabled, don't render anything
+  // Update lastRecordingPath when camera.lastRecordingPath changes
+  useEffect(() => {
+    if (camera.lastRecordingPath) {
+      setLastRecordingPath(camera.lastRecordingPath);
+    }
+  }, [camera.lastRecordingPath]);
+
   if (!isEnabled || !camera.isCameraAvailable) {
-    return null;
+    return (
+      <Box sx={{ mt: 2 }}>
+        <Paper
+          elevation={0}
+          sx={{
+            p: 2,
+            bgcolor: "background.paper",
+            border: "1px solid",
+            borderColor: "divider",
+            borderRadius: 1,
+          }}
+        >
+          <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            <VideocamOffIcon color="error" />
+            <Typography variant="body2">
+              {camera.cameraStatus.error || "Camera is not available"}
+            </Typography>
+          </Box>
+        </Paper>
+      </Box>
+    );
   }
 
   return (
-    <Box sx={{ p: 2 }}>
-      <Typography variant="h6" gutterBottom>
-        Camera Feed
-      </Typography>
-
-      {/* Camera Status */}
+    <Box sx={{ width: "100%" }}>
       <Paper
-        sx={{ p: 2, mb: 2, display: "flex", alignItems: "center", gap: 1 }}
+        elevation={0}
+        sx={{
+          p: 2,
+          bgcolor: "background.paper",
+          border: "1px solid",
+          borderColor: "divider",
+          borderRadius: 1,
+        }}
       >
-        {camera.stream ? (
-          <>
-            <VideocamIcon color="success" />
-            <Typography>Camera is active</Typography>
-          </>
-        ) : (
-          <>
-            <VideocamOffIcon color="error" />
-            <Typography>Camera is inactive</Typography>
-          </>
-        )}
+        <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+          <VideocamIcon color={camera.isActive ? "success" : "error"} />
+          <Typography variant="body2">
+            {camera.isActive ? "Camera is active" : "Camera is inactive"}
+          </Typography>
+        </Box>
       </Paper>
 
       <Box
