@@ -78,19 +78,59 @@ export const CameraComponent: React.FC<CameraComponentProps> = ({
 
   const handleStartRecording = async () => {
     try {
+      setError(null);
+      setIsInitializing(true);
+
+      // First request camera permission if not already active
+      if (!camera.isActive) {
+        const permissionGranted = await camera.requestPermission();
+        if (!permissionGranted) {
+          setError(
+            "Failed to start camera. Please check your browser settings and permissions."
+          );
+          return;
+        }
+
+        // Wait for video element to be ready
+        if (videoRef.current) {
+          await new Promise<void>((resolve) => {
+            videoRef.current!.onloadedmetadata = () => {
+              setIsVideoPlaying(true);
+              console.log("Video element is ready and playing");
+              resolve();
+            };
+          });
+        }
+
+        // Wait a short moment for the camera to fully initialize
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+
+      // Start recording
       await camera.startRecording();
+      console.log("Camera recording started");
     } catch (error) {
       console.error("Error starting recording:", error);
       setError("Failed to start recording. Please check camera access.");
+    } finally {
+      setIsInitializing(false);
     }
   };
 
-  const handleStopRecording = () => {
-    camera.stopRecording();
-    // Get the last recording path from localStorage
-    const recording = localStorage.getItem("cameraRecording");
-    if (recording) {
-      setLastRecordingPath("Browser Local Storage");
+  const handleStopRecording = async () => {
+    try {
+      if (camera.isRecording) {
+        await camera.stopRecording();
+        console.log("Camera recording stopped");
+      }
+      await camera.stopCamera();
+      setIsVideoPlaying(false);
+      if (camera.lastRecordingPath) {
+        console.log("Recording saved to:", camera.lastRecordingPath);
+      }
+    } catch (error) {
+      console.error("Error stopping recording:", error);
+      setError("Failed to stop recording properly");
     }
   };
 
@@ -105,24 +145,44 @@ export const CameraComponent: React.FC<CameraComponentProps> = ({
     try {
       setError(null);
       setIsInitializing(true);
+
+      // First request camera permission
       const permissionGranted = await camera.requestPermission();
-      if (permissionGranted === true) {
-        // Wait for the video element to be ready
-        if (videoRef.current) {
-          videoRef.current.onloadedmetadata = () => {
+      if (!permissionGranted) {
+        setError(
+          "Failed to start camera. Please check your browser settings and permissions."
+        );
+        return;
+      }
+
+      // Wait for video element to be ready
+      if (videoRef.current) {
+        await new Promise<void>((resolve) => {
+          videoRef.current!.onloadedmetadata = () => {
             setIsVideoPlaying(true);
             console.log("Video element is ready and playing");
+            resolve();
           };
-        }
-        // Start recording after ensuring camera is active
-        if (camera.isActive) {
+        });
+      }
+
+      // Wait a short moment for the camera to fully initialize
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+
+      // Check if camera is active and start recording
+      if (camera.isActive) {
+        try {
           await camera.startRecording();
-        } else {
-          setError("Camera failed to activate. Please try again.");
+          console.log("Camera recording started");
+        } catch (recordingError) {
+          console.error("Error starting recording:", recordingError);
+          setError(
+            "Failed to start recording. Camera is active but recording failed."
+          );
         }
       } else {
         setError(
-          "Failed to start camera. Please check your browser settings and permissions."
+          "Camera failed to activate. Please check your camera permissions and try again."
         );
       }
     } catch (error) {
@@ -135,13 +195,14 @@ export const CameraComponent: React.FC<CameraComponentProps> = ({
 
   const handleStopCamera = async () => {
     try {
-      camera.stopRecording();
-      camera.stopCamera();
-      // Wait for the recording to be saved
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      // Get the last recording path
+      if (camera.isRecording) {
+        await camera.stopRecording();
+        console.log("Camera recording stopped");
+      }
+      await camera.stopCamera();
+      setIsVideoPlaying(false);
       if (camera.lastRecordingPath) {
-        setLastRecordingPath(camera.lastRecordingPath);
+        console.log("Recording saved to:", camera.lastRecordingPath);
       }
     } catch (error) {
       console.error("Error stopping camera:", error);
@@ -209,10 +270,10 @@ export const CameraComponent: React.FC<CameraComponentProps> = ({
           <VideocamIcon color={camera.isActive ? "success" : "error"} />
           <Typography variant="body2">
             {camera.isRecording
-              ? "Recording in progress..."
+              ? "Camera recording in progress..."
               : camera.isActive
               ? "Camera is active"
-              : "Camera is inactive. Click 'Start Camera' to begin."}
+              : "Camera is inactive. Click 'Start Camera' to begin recording."}
           </Typography>
         </Box>
       </Paper>
@@ -255,12 +316,24 @@ export const CameraComponent: React.FC<CameraComponentProps> = ({
           <Button
             variant="contained"
             color={camera.isRecording ? "error" : "primary"}
-            onClick={camera.isRecording ? handleStopCamera : handleStartCamera}
+            onClick={
+              camera.isRecording ? handleStopRecording : handleStartRecording
+            }
             disabled={isInitializing}
+            startIcon={
+              camera.isRecording ? <VideocamOffIcon /> : <VideocamIcon />
+            }
           >
-            {camera.isRecording ? "Stop Camera" : "Start Camera"}
+            {camera.isRecording ? "Stop Recording" : "Start Recording"}
           </Button>
         </Box>
+        {camera.lastRecordingPath && (
+          <Box sx={{ mt: 2, textAlign: "center" }}>
+            <Typography variant="body2" color="text.secondary">
+              Last recording saved: {camera.lastRecordingPath}
+            </Typography>
+          </Box>
+        )}
       </Box>
 
       {/* Error Alert */}
@@ -268,56 +341,6 @@ export const CameraComponent: React.FC<CameraComponentProps> = ({
         <Alert severity="error" sx={{ mt: 2 }}>
           {error}
         </Alert>
-      )}
-
-      {/* Recording Status */}
-      {camera.isRecording && (
-        <Alert severity="info" sx={{ mt: 2 }}>
-          Recording in progress... Click "Stop Camera" to save the recording.
-        </Alert>
-      )}
-
-      {/* Last Recording Location */}
-      {lastRecordingPath && (
-        <Paper
-          elevation={0}
-          sx={{
-            p: 2,
-            mt: 2,
-            bgcolor: "background.paper",
-            border: "1px solid",
-            borderColor: "divider",
-            borderRadius: 1,
-          }}
-        >
-          <Box sx={{ display: "flex", flexDirection: "column", gap: 1 }}>
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-              <StorageIcon color="primary" />
-              <Typography variant="body2" fontWeight="bold">
-                Recording Saved
-              </Typography>
-            </Box>
-            <Box sx={{ pl: 4 }}>
-              <Typography variant="body2">
-                Location: {lastRecordingPath}
-              </Typography>
-              {lastRecordingPath === "Browser Local Storage" && (
-                <>
-                  <Typography variant="body2">
-                    To view the recording:
-                  </Typography>
-                  <Typography variant="body2" component="ol" sx={{ pl: 2 }}>
-                    <li>Open Browser Developer Tools (F12)</li>
-                    <li>Go to Application tab</li>
-                    <li>Select Local Storage on the left</li>
-                    <li>Click on your website's domain</li>
-                    <li>Look for the "cameraRecording" key</li>
-                  </Typography>
-                </>
-              )}
-            </Box>
-          </Box>
-        </Paper>
       )}
     </Box>
   );

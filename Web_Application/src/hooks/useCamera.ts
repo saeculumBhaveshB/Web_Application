@@ -291,112 +291,148 @@ export const useCamera = (): UseCameraReturn => {
     }
   };
 
-  const saveRecordingToFile = async (blob: Blob) => {
-    try {
-      // Create a filename with timestamp
-      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-      const filename = `camera-recording-${timestamp}.webm`;
-
-      // Request permission to save the file
-      const handle = await window.showSaveFilePicker({
-        suggestedName: filename,
-        types: [
-          {
-            description: "WebM Video",
-            accept: {
-              "video/webm": [".webm"],
-            },
-          },
-        ],
-      });
-
-      // Create a writable stream
-      const writable = await handle.createWritable();
-      await writable.write(blob);
-      await writable.close();
-
-      // Get the file path
-      const filePath = handle.name;
-      setLastRecordingPath(filePath);
-      console.log("Camera recording saved to:", filePath);
-      return filePath;
-    } catch (error) {
-      console.error("Error saving camera recording to file:", error);
-      // Fallback to localStorage if file system access fails
-      const reader = new FileReader();
-      reader.readAsDataURL(blob);
-      reader.onloadend = () => {
-        const base64data = reader.result as string;
-        localStorage.setItem("cameraRecording", base64data);
-        setLastRecordingPath("Browser Local Storage");
-      };
-      return "Browser Local Storage";
+  const startRecording = async (): Promise<void> => {
+    if (!streamRef.current || mediaRecorderRef.current?.state === "recording") {
+      throw new Error(
+        "Cannot start recording: Camera not ready or already recording"
+      );
     }
-  };
 
-  const startRecording = async () => {
     try {
-      if (!streamRef.current) {
-        throw new Error("No camera stream available");
-      }
-
-      // Ensure the stream is active
-      const videoTrack = streamRef.current.getVideoTracks()[0];
-      if (!videoTrack || videoTrack.readyState !== "live") {
-        throw new Error("Camera stream is not active");
-      }
-
-      const mediaRecorder = new MediaRecorder(streamRef.current, {
-        mimeType: "video/webm;codecs=vp8",
-        videoBitsPerSecond: 2500000, // 2.5 Mbps
-      });
-
-      mediaRecorderRef.current = mediaRecorder;
+      // Reset chunks
       chunksRef.current = [];
 
-      mediaRecorder.ondataavailable = (event) => {
+      // Check supported MIME types
+      const mimeTypes = [
+        "video/webm;codecs=vp8,opus",
+        "video/webm;codecs=vp8",
+        "video/webm",
+      ];
+
+      let selectedMimeType = mimeTypes.find((type) =>
+        MediaRecorder.isTypeSupported(type)
+      );
+
+      if (!selectedMimeType) {
+        throw new Error("No supported video MIME type found");
+      }
+
+      // Create MediaRecorder with optimal settings
+      const options: MediaRecorderOptions = {
+        mimeType: selectedMimeType,
+        videoBitsPerSecond: 2500000, // 2.5 Mbps
+      };
+
+      mediaRecorderRef.current = new MediaRecorder(streamRef.current, options);
+
+      // Set up event handlers
+      mediaRecorderRef.current.ondataavailable = (event) => {
         if (event.data.size > 0) {
           chunksRef.current.push(event.data);
-          console.log(
-            "Recording data chunk collected:",
-            event.data.size,
-            "bytes"
-          );
         }
       };
 
-      mediaRecorder.onstop = async () => {
-        const blob = new Blob(chunksRef.current, { type: "video/webm" });
-        await saveRecordingToFile(blob);
+      mediaRecorderRef.current.onerror = (event) => {
+        console.error("MediaRecorder error:", event);
+        setIsRecording(false);
       };
 
-      mediaRecorder.start(1000); // Collect data every second
+      mediaRecorderRef.current.onstop = async () => {
+        try {
+          if (chunksRef.current.length === 0) {
+            console.warn("No recording data available");
+            return;
+          }
+
+          const blob = new Blob(chunksRef.current, { type: selectedMimeType });
+
+          // Create a filename with timestamp
+          const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+          const filename = `camera-recording-${timestamp}.webm`;
+
+          try {
+            // Try to use the File System Access API
+            const handle = await window.showSaveFilePicker({
+              suggestedName: filename,
+              types: [
+                {
+                  description: "WebM Video",
+                  accept: { "video/webm": [".webm"] },
+                },
+              ],
+            });
+
+            const writable = await handle.createWritable();
+            await writable.write(blob);
+            await writable.close();
+
+            setLastRecordingPath(filename);
+            console.log("Recording saved successfully to:", filename);
+          } catch (fsError) {
+            // Fallback to localStorage if File System Access API fails
+            console.log("Falling back to localStorage for saving recording");
+            const reader = new FileReader();
+            reader.readAsDataURL(blob);
+            reader.onloadend = () => {
+              localStorage.setItem("cameraRecording", reader.result as string);
+              setLastRecordingPath("Browser Local Storage");
+              console.log("Recording saved to browser storage");
+            };
+          }
+        } catch (error) {
+          console.error("Error saving recording:", error);
+          throw new Error("Failed to save recording");
+        }
+      };
+
+      // Start recording
+      mediaRecorderRef.current.start(1000); // Capture data every second
       setIsRecording(true);
-      console.log("Camera recording started");
+      console.log("Recording started successfully");
     } catch (error) {
-      console.error("Error starting camera recording:", error);
-      throw error;
+      console.error("Error starting recording:", error);
+      setIsRecording(false);
+      throw new Error(
+        "Failed to start recording: " +
+          (error instanceof Error ? error.message : "Unknown error")
+      );
     }
   };
 
   const stopRecording = () => {
-    if (
-      mediaRecorderRef.current &&
-      mediaRecorderRef.current.state !== "inactive"
-    ) {
-      mediaRecorderRef.current.stop();
+    try {
+      if (mediaRecorderRef.current?.state === "recording") {
+        mediaRecorderRef.current.stop();
+        setIsRecording(false);
+        console.log("Recording stopped successfully");
+      }
+    } catch (error) {
+      console.error("Error stopping recording:", error);
       setIsRecording(false);
-      console.log("Camera recording stopped");
     }
   };
 
   const stopCamera = () => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
+    try {
+      // Stop recording first if it's active
+      if (mediaRecorderRef.current?.state === "recording") {
+        mediaRecorderRef.current.stop();
+        setIsRecording(false);
+      }
+
+      // Then stop the camera
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => {
+          track.stop();
+        });
+        streamRef.current = null;
+        setStream(null);
+        setIsActive(false);
+      }
+    } catch (error) {
+      console.error("Error stopping camera:", error);
       setIsActive(false);
       setIsRecording(false);
-      console.log("Camera stopped");
     }
   };
 
