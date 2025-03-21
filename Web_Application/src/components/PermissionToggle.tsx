@@ -8,7 +8,7 @@ import {
 } from "@mui/material";
 import { useCamera } from "../hooks/useCamera";
 import { useScreenCapture } from "../hooks/useScreenCapture";
-import { DetectionManager } from "../utils/detectionUtils";
+import { detectionManager, DetectionState } from "../utils/detectionUtils";
 
 interface PermissionToggleProps {
   onPermissionsChange: (enabled: boolean) => void;
@@ -23,7 +23,6 @@ export const PermissionToggle: React.FC<PermissionToggleProps> = ({
 
   const camera = useCamera();
   const screenCapture = useScreenCapture();
-  const detectionManager = new DetectionManager();
 
   const handleToggle = async () => {
     if (!isEnabled) {
@@ -55,7 +54,7 @@ export const PermissionToggle: React.FC<PermissionToggleProps> = ({
   };
 
   React.useEffect(() => {
-    const removeListener = detectionManager.addListener((state) => {
+    const handleStateChange = (state: DetectionState) => {
       if (!state.isTabActive) {
         setAlertMessage(
           "Warning: You have switched tabs. This may affect your interview session."
@@ -68,9 +67,13 @@ export const PermissionToggle: React.FC<PermissionToggleProps> = ({
         );
         setShowAlert(true);
       }
-    });
+    };
 
-    return () => removeListener();
+    detectionManager.on("stateChange", handleStateChange);
+
+    return () => {
+      detectionManager.off("stateChange", handleStateChange);
+    };
   }, []);
 
   return (
