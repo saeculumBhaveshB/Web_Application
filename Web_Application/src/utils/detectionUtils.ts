@@ -22,6 +22,7 @@ interface DetectionState {
     message: string;
     timestamp: Date;
   }[];
+  screenInactiveCount: number;
 }
 
 interface DetectionOptions {
@@ -49,13 +50,14 @@ class DetectionManager extends EventEmitter {
     hasScreenFocus: true,
     hasSuspiciousActivity: false,
     mousePosition: { x: 0, y: 0 },
-    keyboardActivity: false,
+    keyboardActivity: true,
     lastMouseMove: new Date(),
     lastKeyPress: new Date(),
     typingSpeed: 0,
     rapidTypingCount: 0,
     clipboardHistory: [],
     suspiciousPatterns: [],
+    screenInactiveCount: 0,
   };
 
   private options: DetectionOptions = {
@@ -224,15 +226,15 @@ class DetectionManager extends EventEmitter {
   }
 
   private handleVisibilityChange() {
-    const isActive = document.visibilityState === "visible";
-    if (!isActive) {
-      this.state.tabSwitchCount++;
-      this.state.hasTabSwitch = true;
-      this.state.lastActiveTime = new Date();
-      this.checkSuspiciousActivity();
-      this.emit("stateChange", { ...this.state });
+    const isVisible = document.visibilityState === "visible";
+    if (!isVisible) {
+      this.state.screenInactiveCount++;
+      this.state.hasScreenFocus = false;
+    } else {
+      this.state.hasScreenFocus = true;
     }
-    this.state.isTabActive = isActive;
+    this.state.lastActiveTime = new Date();
+    this.emit("stateChange", { ...this.state });
   }
 
   private handleScreenFocus() {
@@ -245,10 +247,12 @@ class DetectionManager extends EventEmitter {
 
   private handleScreenBlur() {
     this.state.hasScreenFocus = false;
+    this.state.screenInactiveCount++;
     this.screenFocusTimer = setTimeout(() => {
       this.state.hasSuspiciousActivity = true;
       this.emit("stateChange", { ...this.state });
     }, this.options.screenFocusTimeout);
+    this.emit("stateChange", { ...this.state });
   }
 
   private handleMouseMove(event: MouseEvent) {
@@ -484,13 +488,14 @@ class DetectionManager extends EventEmitter {
       hasScreenFocus: true,
       hasSuspiciousActivity: false,
       mousePosition: { x: 0, y: 0 },
-      keyboardActivity: false,
+      keyboardActivity: true,
       lastMouseMove: new Date(),
       lastKeyPress: new Date(),
       typingSpeed: 0,
       rapidTypingCount: 0,
       clipboardHistory: [],
       suspiciousPatterns: [],
+      screenInactiveCount: 0,
     };
     this.mouseMovementCount = 0;
     this.suspiciousActivityCount = 0;

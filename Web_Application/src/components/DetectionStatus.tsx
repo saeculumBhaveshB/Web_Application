@@ -38,89 +38,9 @@ export const DetectionStatus: React.FC = () => {
     const newWarnings: string[] = [];
     const warningSet = new Set<string>();
 
-    if (!state.isTabActive) {
-      const warning =
-        "⚠️ Warning: You have switched tabs. This may affect your interview session.";
-      if (!warningSet.has(warning)) {
-        newWarnings.push(warning);
-        warningSet.add(warning);
-      }
-    }
-
-    if (state.hasAIUsage) {
-      const warning =
-        "🚫 Warning: Potential AI tool usage detected. Please ensure you are following interview guidelines.";
-      if (!warningSet.has(warning)) {
-        newWarnings.push(warning);
-        warningSet.add(warning);
-      }
-    }
-
-    if (state.hasMultipleScreens) {
-      const warning =
-        "🖥️ Warning: Multiple screens detected. Please ensure you are focused on the interview.";
-      if (!warningSet.has(warning)) {
-        newWarnings.push(warning);
-        warningSet.add(warning);
-      }
-    }
-
-    if (!state.hasScreenFocus) {
-      const warning =
-        "🎯 Warning: Interview window is not in focus. Please return to the interview window.";
-      if (!warningSet.has(warning)) {
-        newWarnings.push(warning);
-        warningSet.add(warning);
-      }
-    }
-
     if (state.hasSuspiciousActivity) {
       const warning =
         "⚠️ Warning: Suspicious activity detected. Please ensure you are actively participating in the interview.";
-      if (!warningSet.has(warning)) {
-        newWarnings.push(warning);
-        warningSet.add(warning);
-      }
-    }
-
-    if (state.typingSpeed > 150) {
-      const warning =
-        "⌨️ Warning: Unusual typing speed detected. Please ensure you are typing naturally.";
-      if (!warningSet.has(warning)) {
-        newWarnings.push(warning);
-        warningSet.add(warning);
-      }
-    }
-
-    // Handle suspicious patterns with deduplication
-    state.suspiciousPatterns.forEach((pattern) => {
-      let warning = "";
-      switch (pattern.type) {
-        case "mouse":
-          warning = "🖱️ Warning: " + pattern.message;
-          break;
-        case "keyboard":
-          warning = "⌨️ Warning: " + pattern.message;
-          break;
-        case "typing":
-          warning = "⌨️ Warning: " + pattern.message;
-          break;
-        case "code":
-          warning = "💻 Warning: " + pattern.message;
-          break;
-        default:
-          warning = "🔍 Warning: " + pattern.message;
-      }
-
-      if (!warningSet.has(warning)) {
-        newWarnings.push(warning);
-        warningSet.add(warning);
-      }
-    });
-
-    if (state.clipboardHistory.length > 5) {
-      const warning =
-        "📋 Warning: Multiple clipboard operations detected. Please ensure you are providing original answers.";
       if (!warningSet.has(warning)) {
         newWarnings.push(warning);
         warningSet.add(warning);
@@ -138,19 +58,10 @@ export const DetectionStatus: React.FC = () => {
     return `${minutes}m ${seconds % 60}s ago`;
   };
 
-  const getWarningSeverity = (warning: string) => {
-    if (warning.includes("AI tool usage")) return "error";
-    if (
-      warning.includes("Multiple screens") ||
-      warning.includes("not in focus")
-    )
-      return "error";
-    if (
-      warning.includes("Suspicious activity") ||
-      warning.includes("Unnatural")
-    )
-      return "warning";
-    return "info";
+  const getWarningSeverity = (
+    warning: string
+  ): "warning" | "error" | "info" | "success" => {
+    return "warning";
   };
 
   return (
@@ -172,6 +83,20 @@ export const DetectionStatus: React.FC = () => {
                       )})`
                 }
                 color={detectionState.hasScreenFocus ? "success" : "error"}
+                size="small"
+              />
+            </Box>
+          </Grid>
+          <Grid item xs={12} md={6}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <Typography variant="subtitle2">
+                Screen Inactive Count:
+              </Typography>
+              <Chip
+                label={`${detectionState.screenInactiveCount} times`}
+                color={
+                  detectionState.screenInactiveCount > 0 ? "warning" : "success"
+                }
                 size="small"
               />
             </Box>
@@ -256,31 +181,6 @@ export const DetectionStatus: React.FC = () => {
         <Alert severity="success" sx={{ mb: 1 }}>
           No suspicious activity detected. Please continue with your interview.
         </Alert>
-      )}
-
-      {detectionState.suspiciousPatterns.length > 0 && (
-        <Paper elevation={2} sx={{ p: 2, mt: 2 }}>
-          <Typography variant="subtitle2" gutterBottom>
-            Detected Patterns:
-          </Typography>
-          <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1 }}>
-            {detectionState.suspiciousPatterns.map((pattern, index) => (
-              <Tooltip
-                key={index}
-                title={`${
-                  pattern.type
-                } pattern detected at ${pattern.timestamp.toLocaleTimeString()}`}
-              >
-                <Chip
-                  label={pattern.message}
-                  color="warning"
-                  size="small"
-                  variant="outlined"
-                />
-              </Tooltip>
-            ))}
-          </Box>
-        </Paper>
       )}
     </Box>
   );
