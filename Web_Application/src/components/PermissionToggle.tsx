@@ -7,11 +7,25 @@ import {
   Alert,
   Button,
   Stack,
+  Paper,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  List,
+  ListItem,
+  ListItemText,
+  IconButton,
 } from "@mui/material";
 import { useCamera } from "../hooks/useCamera";
 import { useScreenCapture } from "../hooks/useScreenCapture";
 import { detectionManager, DetectionState } from "../utils/detectionUtils";
 import { ScreenshotManager } from "../utils/screenshots";
+import {
+  Delete as DeleteIcon,
+  Download as DownloadIcon,
+} from "@mui/icons-material";
+import path from "path";
 
 interface PermissionToggleProps {
   onPermissionsChange: (enabled: boolean) => void;
@@ -25,10 +39,35 @@ export const PermissionToggle: React.FC<PermissionToggleProps> = ({
   const [alertMessage, setAlertMessage] = useState("");
   const [isCapturing, setIsCapturing] = useState(false);
   const [isInitializing, setIsInitializing] = useState(false);
+  const [activeScreens, setActiveScreens] = useState<string[]>([]);
+  const [showScreenshots, setShowScreenshots] = useState(false);
+  const [screenshotKeys, setScreenshotKeys] = useState<string[]>([]);
+  const [isLoadingScreenshots, setIsLoadingScreenshots] = useState(false);
 
   const camera = useCamera();
   const screenCapture = useScreenCapture();
   const screenshotManager = ScreenshotManager.getInstance();
+
+  // Load screenshots when component mounts
+  useEffect(() => {
+    if (isEnabled) {
+      loadScreenshots();
+    }
+  }, [isEnabled]);
+
+  const loadScreenshots = async () => {
+    try {
+      setIsLoadingScreenshots(true);
+      const keys = await screenshotManager.getAllScreenshotKeys();
+      setScreenshotKeys(keys);
+    } catch (error) {
+      console.error("Error loading screenshots:", error);
+      setAlertMessage("Error loading screenshots");
+      setShowAlert(true);
+    } finally {
+      setIsLoadingScreenshots(false);
+    }
+  };
 
   const handleToggle = async () => {
     if (!isEnabled) {
@@ -41,6 +80,7 @@ export const PermissionToggle: React.FC<PermissionToggleProps> = ({
 
           // Initialize screenshot manager
           await screenshotManager.initialize();
+          setActiveScreens(screenshotManager.getActiveScreens());
           setAlertMessage("Interview monitoring initialized successfully");
         }
       } catch (error) {
@@ -63,6 +103,7 @@ export const PermissionToggle: React.FC<PermissionToggleProps> = ({
       if (screenCapture.stream) {
         screenCapture.stream.getTracks().forEach((track) => track.stop());
       }
+      setActiveScreens([]);
       setAlertMessage("Interview monitoring stopped");
     }
 
@@ -93,19 +134,86 @@ export const PermissionToggle: React.FC<PermissionToggleProps> = ({
     }
   };
 
+  const handleAddScreen = async () => {
+    try {
+      setIsInitializing(true);
+      await screenshotManager.addScreen();
+      setActiveScreens(screenshotManager.getActiveScreens());
+      setAlertMessage("New screen added successfully");
+    } catch (error) {
+      setAlertMessage("Failed to add new screen. Please try again.");
+    } finally {
+      setIsInitializing(false);
+      setShowAlert(true);
+    }
+  };
+
   const handleManualScreenshot = async () => {
     try {
       setIsInitializing(true);
-      const result = await screenshotManager.takeManualScreenshot();
-      if (result) {
-        setAlertMessage("Manual screenshot captured successfully!");
+      const results = await screenshotManager.takeManualScreenshot();
+      if (results.length > 0) {
+        // Download each screenshot
+        results.forEach((result, index) => {
+          const link = document.createElement("a");
+          link.href = result.dataUrl;
+          link.download = `screenshot_${new Date(
+            result.timestamp
+          ).toISOString()}_screen${index + 1}.png`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+        });
+        setAlertMessage(
+          `Captured and downloaded ${results.length} screenshots successfully!`
+        );
+        // Reload screenshots
+        await loadScreenshots();
       } else {
-        setAlertMessage("Failed to capture manual screenshot");
+        setAlertMessage("Failed to capture screenshots");
       }
     } catch (error) {
-      setAlertMessage("Error capturing manual screenshot");
+      setAlertMessage("Error capturing screenshots");
     } finally {
       setIsInitializing(false);
+      setShowAlert(true);
+    }
+  };
+
+  const handleViewScreenshots = async () => {
+    setShowScreenshots(true);
+    await loadScreenshots();
+  };
+
+  const handleDownloadScreenshot = async (key: string) => {
+    try {
+      const dataUrl = await screenshotManager.getScreenshotFromStorage(key);
+      if (dataUrl) {
+        const link = document.createElement("a");
+        link.href = dataUrl;
+        link.download = `screenshot_${key}.png`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      }
+    } catch (error) {
+      console.error("Error downloading screenshot:", error);
+      setAlertMessage("Error downloading screenshot");
+      setShowAlert(true);
+    }
+  };
+
+  const handleDeleteScreenshot = async (key: string) => {
+    try {
+      const success = await screenshotManager.deleteScreenshot(key);
+      if (success) {
+        setAlertMessage("Screenshot deleted successfully");
+        setShowAlert(true);
+        await loadScreenshots();
+      }
+    } catch (error) {
+      console.error("Error deleting screenshot:", error);
+      setAlertMessage("Error deleting screenshot");
       setShowAlert(true);
     }
   };
@@ -179,7 +287,22 @@ export const PermissionToggle: React.FC<PermissionToggleProps> = ({
               onClick={handleManualScreenshot}
               disabled={isInitializing}
             >
-              {isInitializing ? "Capturing..." : "Take Manual Screenshot"}
+              {isInitializing ? "Capturing..." : "Take Manual Screenshots"}
+            </Button>
+            <Button
+              variant="outlined"
+              color="secondary"
+              onClick={handleAddScreen}
+              disabled={isInitializing}
+            >
+              {isInitializing ? "Adding..." : "Add Another Screen"}
+            </Button>
+            <Button
+              variant="outlined"
+              color="info"
+              onClick={handleViewScreenshots}
+            >
+              View Stored Screenshots
             </Button>
           </Stack>
         )}
@@ -195,12 +318,83 @@ export const PermissionToggle: React.FC<PermissionToggleProps> = ({
         )}
 
         {isEnabled && (
-          <Typography variant="body2" color="text.secondary">
-            Camera and screen capture permissions are required for interview
-            monitoring.
-          </Typography>
+          <Paper sx={{ p: 2, bgcolor: "background.default" }}>
+            <Stack spacing={1}>
+              <Typography variant="body2" color="text.secondary">
+                Camera and screen capture permissions are required for interview
+                monitoring.
+              </Typography>
+              {activeScreens.length > 0 && (
+                <Typography variant="body2" color="text.secondary">
+                  Active screens: {activeScreens.join(", ")}
+                </Typography>
+              )}
+              <Typography variant="body2" color="text.secondary">
+                Screenshots are stored in your browser's local storage and can
+                be downloaded.
+              </Typography>
+            </Stack>
+          </Paper>
         )}
       </Stack>
+
+      {/* Screenshots Dialog */}
+      <Dialog
+        open={showScreenshots}
+        onClose={() => setShowScreenshots(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>Stored Screenshots</DialogTitle>
+        <DialogContent>
+          {isLoadingScreenshots ? (
+            <Typography>Loading screenshots...</Typography>
+          ) : (
+            <List>
+              {screenshotKeys.map((key) => {
+                const timestamp = parseInt(key);
+                const date = new Date(timestamp).toLocaleString();
+                return (
+                  <ListItem
+                    key={key}
+                    secondaryAction={
+                      <Stack direction="row" spacing={1}>
+                        <IconButton
+                          edge="end"
+                          onClick={() => handleDownloadScreenshot(key)}
+                          title="Download"
+                        >
+                          <DownloadIcon />
+                        </IconButton>
+                        <IconButton
+                          edge="end"
+                          onClick={() => handleDeleteScreenshot(key)}
+                          title="Delete"
+                        >
+                          <DeleteIcon />
+                        </IconButton>
+                      </Stack>
+                    }
+                  >
+                    <ListItemText
+                      primary={`Screenshot from ${date}`}
+                      secondary={`Storage Key: ${key}`}
+                    />
+                  </ListItem>
+                );
+              })}
+              {screenshotKeys.length === 0 && (
+                <ListItem>
+                  <ListItemText primary="No screenshots stored" />
+                </ListItem>
+              )}
+            </List>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setShowScreenshots(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };
