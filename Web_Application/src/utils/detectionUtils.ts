@@ -16,13 +16,29 @@ interface DetectionState {
   lastKeyPress: Date;
   typingSpeed: number;
   rapidTypingCount: number;
-  clipboardHistory: string[];
+  clipboardHistory: Array<{
+    content: string;
+    timestamp: Date;
+    type: "copy" | "paste";
+    source: "web" | "system";
+    url?: string;
+    context: {
+      elementType: string;
+      elementId: string;
+      elementClass: string;
+      isInput: boolean;
+      isContentEditable: boolean;
+    };
+  }>;
   suspiciousPatterns: {
     type: string;
     message: string;
     timestamp: Date;
   }[];
   screenInactiveCount: number;
+  lastClipboardOperation: Date;
+  clipboardOperationCount: number;
+  webClipboardCount: number;
 }
 
 interface DetectionOptions {
@@ -58,6 +74,9 @@ class DetectionManager extends EventEmitter {
     clipboardHistory: [],
     suspiciousPatterns: [],
     screenInactiveCount: 0,
+    lastClipboardOperation: new Date(),
+    clipboardOperationCount: 0,
+    webClipboardCount: 0,
   };
 
   private options: DetectionOptions = {
@@ -209,7 +228,7 @@ class DetectionManager extends EventEmitter {
     );
 
     // Clipboard monitoring
-    document.addEventListener("paste", this.handlePaste.bind(this));
+    this.startClipboardMonitoring();
 
     // Keyboard monitoring
     document.addEventListener("keydown", this.handleKeyPress.bind(this));
@@ -373,23 +392,147 @@ class DetectionManager extends EventEmitter {
     }
   }
 
-  private handlePaste(event: ClipboardEvent) {
+  private handlePaste = (event: ClipboardEvent) => {
     const pastedText = event.clipboardData?.getData("text");
     if (pastedText) {
-      // Add to clipboard history
-      this.state.clipboardHistory.unshift(pastedText);
-      if (
-        this.state.clipboardHistory.length > this.options.clipboardHistorySize
-      ) {
-        this.state.clipboardHistory.pop();
+      const source = this.detectClipboardSource(event);
+      const url = window.location.href;
+      const target = event.target as HTMLElement;
+
+      // Get more context about where the paste occurred
+      const context = {
+        elementType: target.tagName.toLowerCase(),
+        elementId: target.id || "unknown",
+        elementClass: target.className || "unknown",
+        isInput: target.tagName === "INPUT" || target.tagName === "TEXTAREA",
+        isContentEditable: target.contentEditable === "true",
+        timestamp: new Date(),
+      };
+
+      this.state.clipboardHistory.push({
+        content: pastedText,
+        timestamp: new Date(),
+        type: "paste",
+        source,
+        url,
+        context,
+      });
+
+      this.state.lastClipboardOperation = new Date();
+      this.state.clipboardOperationCount++;
+
+      if (source === "web") {
+        this.state.webClipboardCount++;
       }
 
-      // Check for AI usage
+      // Check for suspicious patterns in pasted text
       this.checkForAIUsage(pastedText);
-
-      // Check for suspicious patterns
       this.checkForSuspiciousPatterns(pastedText);
+
+      // Emit a specific event for paste operations
+      this.emit("clipboardOperation", {
+        type: "paste",
+        content: pastedText,
+        source,
+        context,
+      });
     }
+    this.emit("stateChange", { ...this.state });
+  };
+
+  private handleCopy = (event: ClipboardEvent) => {
+    const selectedText = window.getSelection()?.toString();
+    if (selectedText) {
+      const source = this.detectClipboardSource(event);
+      const url = window.location.href;
+      const target = event.target as HTMLElement;
+
+      // Get more context about where the copy occurred
+      const context = {
+        elementType: target.tagName.toLowerCase(),
+        elementId: target.id || "unknown",
+        elementClass: target.className || "unknown",
+        isInput: target.tagName === "INPUT" || target.tagName === "TEXTAREA",
+        isContentEditable: target.contentEditable === "true",
+        timestamp: new Date(),
+      };
+
+      this.state.clipboardHistory.push({
+        content: selectedText,
+        timestamp: new Date(),
+        type: "copy",
+        source,
+        url,
+        context,
+      });
+
+      this.state.lastClipboardOperation = new Date();
+      this.state.clipboardOperationCount++;
+
+      if (source === "web") {
+        this.state.webClipboardCount++;
+      }
+
+      // Emit a specific event for copy operations
+      this.emit("clipboardOperation", {
+        type: "copy",
+        content: selectedText,
+        source,
+        context,
+      });
+    }
+    this.emit("stateChange", { ...this.state });
+  };
+
+  private detectClipboardSource(event: ClipboardEvent): "web" | "system" {
+    const target = event.target as HTMLElement;
+
+    // Check if the event originated from a web application
+    if (target) {
+      // Check for input elements
+      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") {
+        return "web";
+      }
+
+      // Check for content editable elements
+      if (target.contentEditable === "true") {
+        return "web";
+      }
+
+      // Check for elements with textbox role
+      if (target.getAttribute("role") === "textbox") {
+        return "web";
+      }
+
+      // Check for code editors or similar elements
+      if (
+        target.className?.includes("editor") ||
+        target.className?.includes("code") ||
+        target.className?.includes("monaco")
+      ) {
+        return "web";
+      }
+
+      // Check for rich text editors
+      if (
+        target.className?.includes("rich-text") ||
+        target.className?.includes("wysiwyg")
+      ) {
+        return "web";
+      }
+    }
+
+    return "system";
+  }
+
+  private startClipboardMonitoring() {
+    document.addEventListener("paste", this.handlePaste);
+    document.addEventListener("copy", this.handleCopy);
+  }
+
+  private stopClipboardMonitoring() {
+    document.removeEventListener("paste", this.handlePaste);
+    document.removeEventListener("copy", this.handleCopy);
   }
 
   private resetInactivityTimer() {
@@ -496,6 +639,9 @@ class DetectionManager extends EventEmitter {
       clipboardHistory: [],
       suspiciousPatterns: [],
       screenInactiveCount: 0,
+      lastClipboardOperation: new Date(),
+      clipboardOperationCount: 0,
+      webClipboardCount: 0,
     };
     this.mouseMovementCount = 0;
     this.suspiciousActivityCount = 0;
@@ -519,7 +665,7 @@ class DetectionManager extends EventEmitter {
       "visibilitychange",
       this.handleVisibilityChange.bind(this)
     );
-    document.removeEventListener("paste", this.handlePaste.bind(this));
+    this.stopClipboardMonitoring();
     document.removeEventListener("keydown", this.handleKeyPress.bind(this));
     document.removeEventListener("mousemove", this.handleMouseMove.bind(this));
     window.removeEventListener("focus", this.handleScreenFocus.bind(this));

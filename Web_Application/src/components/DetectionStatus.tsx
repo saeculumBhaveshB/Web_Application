@@ -50,7 +50,8 @@ export const DetectionStatus: React.FC = () => {
     setWarnings(newWarnings);
   };
 
-  const formatTimeAgo = (date: Date) => {
+  const formatTimeAgo = (date: Date | undefined) => {
+    if (!date) return "Never";
     const now = new Date();
     const diff = now.getTime() - date.getTime();
     const seconds = Math.floor(diff / 1000);
@@ -93,9 +94,11 @@ export const DetectionStatus: React.FC = () => {
                 Screen Inactive Count:
               </Typography>
               <Chip
-                label={`${detectionState.screenInactiveCount} times`}
+                label={`${detectionState.screenInactiveCount || 0} times`}
                 color={
-                  detectionState.screenInactiveCount > 0 ? "warning" : "success"
+                  (detectionState.screenInactiveCount || 0) > 0
+                    ? "warning"
+                    : "success"
                 }
                 size="small"
               />
@@ -120,8 +123,12 @@ export const DetectionStatus: React.FC = () => {
               <KeyboardIcon />
               <Typography variant="subtitle2">Typing Speed:</Typography>
               <Chip
-                label={`${Math.round(detectionState.typingSpeed)} CPM`}
-                color={detectionState.typingSpeed > 150 ? "warning" : "success"}
+                label={`${Math.round(detectionState.typingSpeed || 0)} CPM`}
+                color={
+                  (detectionState.typingSpeed || 0) > 150
+                    ? "warning"
+                    : "success"
+                }
                 size="small"
               />
             </Box>
@@ -140,16 +147,44 @@ export const DetectionStatus: React.FC = () => {
           <Grid item xs={12} md={6}>
             <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
               <ContentPasteIcon />
-              <Typography variant="subtitle2">Clipboard History:</Typography>
+              <Typography variant="subtitle2">Clipboard Operations:</Typography>
               <Chip
-                label={`${detectionState.clipboardHistory.length} items`}
+                label={`${detectionState.clipboardOperationCount || 0} total (${
+                  detectionState.webClipboardCount || 0
+                } web)`}
                 color={
-                  detectionState.clipboardHistory.length > 5
+                  (detectionState.clipboardOperationCount || 0) > 5
                     ? "error"
                     : "success"
                 }
                 size="small"
               />
+            </Box>
+          </Grid>
+          <Grid item xs={12} md={6}>
+            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+              <Typography variant="subtitle2">Last Operation:</Typography>
+              <Tooltip
+                title={
+                  detectionState.clipboardHistory.length > 0
+                    ? `Last ${
+                        detectionState.clipboardHistory[
+                          detectionState.clipboardHistory.length - 1
+                        ].type
+                      } from ${
+                        detectionState.clipboardHistory[
+                          detectionState.clipboardHistory.length - 1
+                        ].source
+                      }`
+                    : "No operations yet"
+                }
+              >
+                <Chip
+                  label={formatTimeAgo(detectionState.lastClipboardOperation)}
+                  color="info"
+                  size="small"
+                />
+              </Tooltip>
             </Box>
           </Grid>
           <Grid item xs={12} md={6}>

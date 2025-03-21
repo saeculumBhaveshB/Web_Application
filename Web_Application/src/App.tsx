@@ -6,11 +6,13 @@ import {
   CssBaseline,
   ThemeProvider,
   createTheme,
+  AppBar,
 } from "@mui/material";
 import { PermissionToggle } from "./components/PermissionToggle";
 import { CameraComponent } from "./components/CameraComponent";
 import { ScreenCaptureComponent } from "./components/ScreenCaptureComponent";
 import { DetectionStatus } from "./components/DetectionStatus";
+import { ClipboardTest } from "./components/ClipboardTest";
 
 const theme = createTheme({
   palette: {
@@ -54,6 +56,7 @@ function App() {
             {isEnabled && (
               <Box sx={{ mt: 4 }}>
                 <DetectionStatus />
+                <ClipboardTest />
                 <CameraComponent isEnabled={isEnabled} />
                 <ScreenCaptureComponent
                   isEnabled={isEnabled}
