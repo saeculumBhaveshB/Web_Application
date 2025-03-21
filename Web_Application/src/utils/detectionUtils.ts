@@ -101,59 +101,119 @@ class DetectionManager extends EventEmitter {
   private typingCharacterCount = 0;
 
   private aiDetectionPatterns = [
-    // AI Tools
-    /chatgpt/i,
-    /bard/i,
-    /claude/i,
-    /copilot/i,
-    /gpt/i,
-    /openai/i,
-    /anthropic/i,
-    /gemini/i,
-    /perplexity/i,
-    /midjourney/i,
-    /dall-e/i,
-    /stable diffusion/i,
-    /jupyter/i,
-    /colab/i,
-    /kaggle/i,
+    // AI Tool Names
+    "chatgpt",
+    "gpt-",
+    "bard",
+    "claude",
+    "anthropic",
+    "openai",
+    "copilot",
+    "github copilot",
+    "codex",
+    "dall-e",
+    "midjourney",
+    "stable diffusion",
 
-    // Coding Platforms
-    /stack overflow/i,
-    /github/i,
-    /leetcode/i,
-    /hackerrank/i,
-    /codechef/i,
-    /geeksforgeeks/i,
-    /codeforces/i,
-    /replit/i,
-    /codesandbox/i,
-    /codepen/i,
+    // Common AI Response Patterns
+    "here's a comprehensive answer",
+    "let me explain this in detail",
+    "here's a step-by-step solution",
+    "based on the provided information",
+    "according to the given context",
+    "here's a detailed explanation",
+    "let me break this down",
+    "here's a structured response",
 
-    // AI-related Terms
-    /artificial intelligence/i,
-    /machine learning/i,
-    /neural network/i,
-    /deep learning/i,
-    /large language model/i,
-    /transformer/i,
-    /attention mechanism/i,
-    /reinforcement learning/i,
+    // Code Generation Patterns
+    "```python",
+    "```javascript",
+    "```typescript",
+    "```java",
+    "```cpp",
+    "```sql",
+    "```html",
+    "```css",
 
-    // Common AI Tool Shortcuts
-    /ctrl\+c/i,
-    /ctrl\+v/i,
-    /ctrl\+a/i,
-    /cmd\+c/i,
-    /cmd\+v/i,
-    /cmd\+a/i,
-    /ctrl\+shift\+v/i,
-    /cmd\+shift\+v/i,
+    // AI Response Markers
+    "in conclusion",
+    "to summarize",
+    "in summary",
+    "therefore",
+    "thus",
+    "consequently",
+    "as a result",
 
-    // Code Snippets
-    /```[\s\S]*?```/i, // Code blocks
-    /<code>[\s\S]*?<\/code>/i, // HTML code blocks
-    /<pre>[\s\S]*?<\/pre>/i, // HTML pre blocks
+    // Interview-Specific AI Patterns
+    "here's a sample answer",
+    "here's a model response",
+    "here's an example solution",
+    "here's a template answer",
+    "here's a suggested response",
+    "here's a recommended approach",
+
+    // Technical Terms Often Used by AI
+    "algorithm",
+    "implementation",
+    "optimization",
+    "complexity",
+    "efficiency",
+    "performance",
+    "scalability",
+    "architecture",
+
+    // Common AI Response Structures
+    "first, let's",
+    "next, we'll",
+    "then, we can",
+    "finally, we should",
+    "in the first step",
+    "in the next step",
+    "in the final step",
+
+    // AI Response Qualifiers
+    "generally speaking",
+    "typically",
+    "usually",
+    "commonly",
+    "in most cases",
+    "in general",
+    "as a general rule",
+
+    // Interview-Specific AI Phrases
+    "here's how you can answer",
+    "here's a good way to respond",
+    "here's an effective answer",
+    "here's a strong response",
+    "here's a comprehensive answer",
+    "here's a well-structured response",
+
+    // Code-Specific AI Patterns
+    "function",
+    "class",
+    "method",
+    "interface",
+    "implementation",
+    "inheritance",
+    "polymorphism",
+    "encapsulation",
+
+    // AI Response Transitions
+    "moving forward",
+    "proceeding with",
+    "continuing with",
+    "following this",
+    "subsequently",
+    "thereafter",
+    "consequently",
+
+    // Interview-Specific AI Closings
+    "this should help you answer",
+    "this will guide you through",
+    "this provides a framework for",
+    "this gives you a structure for",
+    "this offers a template for",
+    "this serves as a model for",
   ];
 
   private suspiciousPatterns = [
@@ -289,13 +349,21 @@ class DetectionManager extends EventEmitter {
       this.mouseMovementCount++;
       if (this.mouseMovementCount > this.options.suspiciousActivityThreshold) {
         this.state.hasSuspiciousActivity = true;
-        this.addSuspiciousPattern("mouse", "Rapid mouse movement detected");
+        this.addSuspiciousPattern({
+          type: "mouse",
+          message: "Rapid mouse movement detected",
+          timestamp: new Date(),
+        });
       }
     }
 
     // Check for unnatural movement patterns
     if (this.isUnnaturalMovement(deltaX, deltaY)) {
-      this.addSuspiciousPattern("mouse", "Unnatural mouse movement detected");
+      this.addSuspiciousPattern({
+        type: "mouse",
+        message: "Unnatural mouse movement detected",
+        timestamp: new Date(),
+      });
     }
 
     this.lastMousePosition = { x: event.clientX, y: event.clientY };
@@ -339,7 +407,11 @@ class DetectionManager extends EventEmitter {
       }
       // Additional shortcut monitoring
       if (event.key === "z" || event.key === "y") {
-        this.addSuspiciousPattern("keyboard", "Undo/Redo operation detected");
+        this.addSuspiciousPattern({
+          type: "keyboard",
+          message: "Undo/Redo operation detected",
+          timestamp: new Date(),
+        });
       }
     }
 
@@ -369,7 +441,11 @@ class DetectionManager extends EventEmitter {
       this.state.rapidTypingCount++;
       if (this.state.rapidTypingCount >= this.options.rapidTypingThreshold) {
         this.state.hasSuspiciousActivity = true;
-        this.addSuspiciousPattern("typing", "Rapid typing detected");
+        this.addSuspiciousPattern({
+          type: "typing",
+          message: "Rapid typing detected",
+          timestamp: new Date(),
+        });
       }
     }
 
@@ -426,8 +502,14 @@ class DetectionManager extends EventEmitter {
       }
 
       // Check for suspicious patterns in pasted text
-      this.checkForAIUsage(pastedText);
-      this.checkForSuspiciousPatterns(pastedText);
+      if (this.checkForAIUsage(pastedText)) {
+        this.state.hasAIUsage = true;
+        this.addSuspiciousPattern({
+          type: "ai",
+          message: "Potential AI-generated content detected in pasted text",
+          timestamp: new Date(),
+        });
+      }
 
       // Emit a specific event for paste operations
       this.emit("clipboardOperation", {
@@ -562,14 +644,40 @@ class DetectionManager extends EventEmitter {
     }, 5000); // Check every 5 seconds
   }
 
-  private checkForAIUsage(text: string) {
-    const hasAIPattern = this.aiDetectionPatterns.some((pattern) =>
-      pattern.test(text)
-    );
-    if (hasAIPattern) {
-      this.state.aiDetectionCount++;
-      this.checkAIUsageThreshold();
+  private checkForAIUsage(text: string): boolean {
+    const lowerText = text.toLowerCase();
+    let aiPatternCount = 0;
+    const detectedPatterns: string[] = [];
+
+    // Check for AI tool names and patterns
+    for (const pattern of this.aiDetectionPatterns) {
+      if (lowerText.includes(pattern)) {
+        aiPatternCount++;
+        detectedPatterns.push(pattern);
+      }
     }
+
+    // Check for rapid typing patterns
+    if (this.state.typingSpeed > 150) {
+      aiPatternCount += 2; // Weight rapid typing more heavily
+    }
+
+    // Check for clipboard history
+    if (this.state.clipboardHistory.length > 5) {
+      aiPatternCount += 1; // Weight clipboard operations
+    }
+
+    // Check for suspicious patterns in the text
+    if (detectedPatterns.length > 0) {
+      this.addSuspiciousPattern({
+        type: "ai",
+        message: `AI-like patterns detected: ${detectedPatterns.join(", ")}`,
+        timestamp: new Date(),
+      });
+    }
+
+    // Consider the text suspicious if it contains multiple AI patterns
+    return aiPatternCount >= 3;
   }
 
   private checkAIUsageThreshold() {
@@ -579,39 +687,51 @@ class DetectionManager extends EventEmitter {
     }
   }
 
-  private addSuspiciousPattern(type: string, message: string) {
-    // Check if a similar pattern was added recently (within last 5 seconds)
-    const recentPattern = this.state.suspiciousPatterns.find(
-      (pattern) =>
-        pattern.type === type &&
-        pattern.message === message &&
-        Date.now() - pattern.timestamp.getTime() < 5000
+  private addSuspiciousPattern(pattern: {
+    type: string;
+    message: string;
+    timestamp: Date;
+  }) {
+    // Check for duplicate patterns within 5 seconds
+    const recentPatterns = this.state.suspiciousPatterns.filter(
+      (p) =>
+        p.type === pattern.type &&
+        p.message === pattern.message &&
+        Date.now() - p.timestamp.getTime() < 5000
     );
 
-    if (!recentPattern) {
-      this.state.suspiciousPatterns.push({
-        type,
-        message,
-        timestamp: new Date(),
-      });
+    if (recentPatterns.length === 0) {
+      this.state.suspiciousPatterns.push(pattern);
+      this.emit("stateChange", { ...this.state });
     }
   }
 
   private checkForSuspiciousPatterns(text: string) {
-    const patterns = this.suspiciousPatterns.filter((pattern) =>
-      pattern.test(text)
-    );
-    if (patterns.length > 0) {
-      patterns.forEach((pattern) => {
-        this.addSuspiciousPattern("code", pattern.toString());
+    // Check for code snippets
+    if (
+      text.includes("```") ||
+      text.includes("<code>") ||
+      text.includes("<pre>")
+    ) {
+      this.addSuspiciousPattern({
+        type: "code",
+        message: "Code snippet detected in pasted content",
+        timestamp: new Date(),
       });
+    }
 
-      if (
-        this.state.suspiciousPatterns.length >=
-        this.options.patternDetectionThreshold
-      ) {
-        this.state.hasSuspiciousActivity = true;
-      }
+    // Check for AI tool shortcuts
+    if (
+      text.includes("ctrl+c") ||
+      text.includes("ctrl+v") ||
+      text.includes("cmd+c") ||
+      text.includes("cmd+v")
+    ) {
+      this.addSuspiciousPattern({
+        type: "shortcut",
+        message: "AI tool shortcuts detected",
+        timestamp: new Date(),
+      });
     }
   }
 
